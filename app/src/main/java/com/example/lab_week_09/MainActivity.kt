@@ -12,6 +12,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
@@ -24,6 +25,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.snapshots.SnapshotStateList
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.tooling.preview.Preview
@@ -38,6 +40,11 @@ import com.example.lab_week_09.ui.theme.LAB_WEEK_09Theme
 import com.example.lab_week_09.ui.theme.OnBackgroundItemText
 import com.example.lab_week_09.ui.theme.OnBackgroundTitleText
 import com.example.lab_week_09.ui.theme.PrimaryTextButton
+import com.squareup.moshi.Moshi
+import com.squareup.moshi.Types
+import android.net.Uri
+import com.squareup.moshi.kotlin.reflect.KotlinJsonAdapterFactory
+
 
 //Previously we extend AppCompatActivity,
 //now we extend ComponentActivity
@@ -86,6 +93,13 @@ data class Student(
 @Composable
 fun Home(navigateFromHomeToResult: (String) -> Unit
 ) {
+    val moshi = remember {
+        Moshi.Builder()
+            .add(KotlinJsonAdapterFactory())
+            .build()
+    }
+    val listType = remember { Types.newParameterizedType(List::class.java, Student::class.java) }
+    val adapter = remember { moshi.adapter<List<Student>>(listType) }
     //Here, we create a mutable state list of Student
     //We use remember to make the list remember its value
     //This is so that the list won't be recreated when the composable recomposes
@@ -117,7 +131,9 @@ fun Home(navigateFromHomeToResult: (String) -> Unit
                 inputField.value = Student("")
             }
         },
-            { navigateFromHomeToResult(listData.toList().toString())
+        {
+            val json = adapter.toJson(listData)           // ← convert ke JSON
+            navigateFromHomeToResult(json)                // ← kirim JSON
         }
     )
 }
@@ -168,14 +184,20 @@ fun HomeContent(
                 }
             )
                 Row {
-                    PrimaryTextButton(text = stringResource(id =
-                        R.string.button_click)) {
-                        onButtonClick()
-                    }
-                    PrimaryTextButton(text = stringResource(id =
-                        R.string.button_navigate)) {
-                        navigateFromHomeToResult()
-                    }
+                    PrimaryTextButton(
+                        text = stringResource(id = R.string.button_click),
+                        onClick = {
+                            if (inputField.name.isNotBlank()) {
+                                onButtonClick()
+                            }
+                        },
+                        enabled = inputField.name.isNotBlank()
+                    )
+
+                    PrimaryTextButton(
+                        text = stringResource(id = R.string.button_navigate),
+                        onClick = { navigateFromHomeToResult() }   // ← wajib named
+                    )
                 }
             }
         }
@@ -209,11 +231,8 @@ fun App(navController: NavHostController) {
         //This means that when the app navigates to "home",
         //the Home composable will be displayed
         composable("home") {
-            //Here, we pass a lambda function that navigates to
-            "resultContent"
-            //and pass the listData as a parameter
-            Home { navController.navigate(
-                "resultContent/?listData=$it")
+            Home { valueJson ->
+                navController.navigate("resultContent?listData=${Uri.encode(valueJson)}")
             }
         }
 //Here, we create a route called "resultContent"
@@ -225,32 +244,36 @@ fun App(navController: NavHostController) {
         //We use navArgument to define the argument
         //We use NavType.StringType to define the type of the argument
         composable(
-            "resultContent/?listData={listData}",
-            arguments = listOf(navArgument("listData") {
-                type = NavType.StringType }
-            )
-        ) {
-            //Here, we pass the value of the argument to the ResultContent composable
-            ResultContent(
-                it.arguments?.getString("listData").orEmpty()
-            )
+            route = "resultContent?listData={listData}",
+            arguments = listOf(navArgument("listData") { type = NavType.StringType })
+        ) { backStackEntry ->
+            val json = backStackEntry.arguments?.getString("listData").orEmpty()
+
+            val moshi = Moshi.Builder()
+                .add(KotlinJsonAdapterFactory())       // ← tambahkan ini juga
+                .build()
+            val type = Types.newParameterizedType(List::class.java, Student::class.java)
+            val adapter = moshi.adapter<List<Student>>(type)
+            val list = runCatching { adapter.fromJson(json) }.getOrNull().orEmpty()
+
+            ResultContent(list)
         }
     }
 }
 
 @Composable
-fun ResultContent(listData: String) {
-    Column(
+fun ResultContent(listData: List<Student>) {
+    LazyColumn(
         modifier = Modifier
-            .padding(vertical = 4.dp)
-            .fillMaxSize(),
+            .fillMaxSize()
+            .padding(16.dp),
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
-        //Here, we call the OnBackgroundItemText UI Element
-        OnBackgroundItemText(text = listData)
+        items(listData) { item ->
+            OnBackgroundItemText(text = item.name)
+        }
     }
 }
-
 //Here, we create a preview function of the Home composable
 //This function is specifically used to show a preview of the Home composable
 //This is only for development purpose
